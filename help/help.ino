@@ -1,4 +1,7 @@
- #include <ESP32Servo.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 #include "I2Cdev.h"
 //#include "MPU6050.h"
 #include "MPU6050_6Axis_MotionApps_V6_12.h"
@@ -12,13 +15,18 @@
 #define PIN_TRIMPOT 25
 #define PIN_DTRIM 35
 #define PIN_MPUINT 18
+#define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E" // UART service UUID
+#define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
 class PIDController {
   private:
 //    float p, i, d;
     float err_acc = 0;
     float target, err_prev = 0;
+
   public:
+      float err_mul = 0.999;
     float p, i, d;
     PIDController(float p, float i, float d, float target):
       p(p), i(i), d(d), target(target) {
@@ -30,7 +38,7 @@ class PIDController {
     
     float calcPid(float currentPos, float dt) {
       float err = currentPos - target;
-      err_acc = (err_acc + dt * err) * 0.9;
+      err_acc = (err_acc + dt * err) * err_mul;
       float dErr = (err - err_prev) / dt;
       float adjust = p * err + i * err_acc + d * dErr;
       err_prev = err;
@@ -106,6 +114,134 @@ uint16_t fifoCount;     // count of all bytes currently in FIFO
 uint8_t fifoBuffer[64]; // FIFO storage buffer
 
 
+// BLE globals
+BLEServer *pServer = NULL;
+BLECharacteristic * pTxCharacteristic;
+bool deviceConnected = false;
+bool oldDeviceConnected = false;
+uint8_t txValue = 0;
+
+/**
+ * Write the given string to the virtual serial port.
+ */
+void writeString(std::string str) {
+    pTxCharacteristic->setValue((uint8_t*)str.c_str(), str.length());
+    pTxCharacteristic->notify();
+    delay(10); // bluetooth stack will go into congestion, if too many packets are sent
+}
+
+void handleIncoming(std::string &command) {
+  // First character is always the command name.
+  // Min length is 1 (S)
+  if (command.length() < 1) {
+    return;
+  }
+  char cmd = command.at(0);
+  std::string rest = command.substr(1, command.length());
+  switch (cmd) {
+    case 'P':
+      controller.p = atof(rest.c_str());
+      break;
+    case 'I':
+      controller.i = atof(rest.c_str());
+      break;
+    case 'D':
+      controller.d = atof(rest.c_str());
+      break;
+    case 'R':
+      writeString("Resetting MPU...");
+      mpuInit();
+      break;
+    case 'M':
+      writeString("Changing err_mul");
+      controller.err_mul = atof(rest.c_str());
+      break;
+    default:
+      writeString("Unknown command " + command);
+      break;
+  }
+  writeString("P: " + std::to_string(controller.p) + ", I: " + std::to_string(controller.i) + ", D: " + std::to_string(controller.d));
+  
+}
+
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      deviceConnected = true;
+    };
+
+    void onDisconnect(BLEServer* pServer) {
+      deviceConnected = false;
+    }
+};
+
+class MyCallbacks: public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) {
+      std::string rxValue = pCharacteristic->getValue();
+
+      if (rxValue.length() > 0) {
+        Serial.println("*********");
+        Serial.print("Received Value: ");
+        for (int i = 0; i < rxValue.length(); i++)
+          Serial.print(rxValue[i]);
+
+        Serial.println();
+        Serial.println("*********");
+        handleIncoming(rxValue);
+      }
+    }
+};
+
+void bleInit() {
+  //////// BLE init
+  // Create the BLE Device
+  BLEDevice::init("C4 Cat");
+
+  // Create the BLE Server
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
+  // Create the BLE Service
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+
+  // Create a BLE Characteristic
+  pTxCharacteristic = pService->createCharacteristic(
+                    CHARACTERISTIC_UUID_TX,
+                    BLECharacteristic::PROPERTY_NOTIFY
+                  );
+                      
+  pTxCharacteristic->addDescriptor(new BLE2902());
+
+  BLECharacteristic * pRxCharacteristic = pService->createCharacteristic(
+                       CHARACTERISTIC_UUID_RX,
+                      BLECharacteristic::PROPERTY_WRITE
+                    );
+
+  pRxCharacteristic->setCallbacks(new MyCallbacks());
+
+  // Start the service
+  pService->start();
+
+  // Start advertising
+  pServer->getAdvertising()->start();
+  Serial.println("Waiting a client connection to notify...");
+}
+
+void bleTick() {
+      // disconnecting
+    if (!deviceConnected && oldDeviceConnected) {
+//        delay(500); // give the bluetooth stack the chance to get things ready
+        pServer->startAdvertising(); // restart advertising
+        Serial.println("start advertising");
+        oldDeviceConnected = deviceConnected;
+    }
+    // connecting
+    if (deviceConnected && !oldDeviceConnected) {
+        // do stuff here on connecting
+        oldDeviceConnected = deviceConnected;
+    }
+}
+
+
 void mpuInit() {
 // initialize device
   Serial.println(F("Initializing I2C devices..."));
@@ -178,6 +314,7 @@ void setup() {
   // initialize device
   Serial.println("Initializing I2C devices...");
   mpuInit();
+  bleInit();
   
   // configure Arduino LED pin for output
   // pinMode(LED_PIN, OUTPUT);
@@ -197,22 +334,22 @@ void loop() {
   mpu.dmpGetQuaternion(&q, fifoBuffer);
   mpu.dmpGetGravity(&gravity, &q);
   mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-  Serial.print("ypr\t");
-  Serial.print(ypr[0] * 180 / M_PI);
-  Serial.print("\t");
-  Serial.print(ypr[1] * 180 / M_PI);
-  Serial.print("\t");
-  Serial.print(ypr[2] * 180 / M_PI);
+//  Serial.print("ypr\t");
+//  Serial.print(ypr[0] * 180 / M_PI);
+//  Serial.print("\t");
+//  Serial.print(ypr[1] * 180 / M_PI);
+//  Serial.print("\t");
+//  Serial.print(ypr[2] * 180 / M_PI);
   
   // Turn motors proportional to x accel
   float requested = controller.calcPid(ypr[1], (millis() - lastMillis) / 1000.0f);
   delay(2);
   int amt = requested;// constrain(requested, -255, 255);
-  float n = analogRead(PIN_TRIMPOT);
-  float d = analogRead(PIN_DTRIM);
-
-  controller.p = mapf(n, 0.0, 4095.0, 0, 3000);
-  controller.d = mapf(d, 0.0, 4095.0, 0, 2000);
+//  float n = analogRead(PIN_TRIMPOT);
+//  float d = analogRead(PIN_DTRIM);
+//
+//  controller.p = mapf(n, 0.0, 4095.0, 0, 3000);
+//  controller.d = mapf(d, 0.0, 4095.0, 0, 2000);
   
 //  Serial.printf("n: %f, d: %f\n", n, d);
 
@@ -221,4 +358,5 @@ void loop() {
   
   left.write(amt);
   right.write(amt);
+  bleTick();
 }
