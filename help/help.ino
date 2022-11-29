@@ -349,12 +349,13 @@ void setup() {
 
 int lastMillis = 0;
 void loop() {
+  int tStart = micros();
   // Requires DMP to be ready.
   if (!dmpReady) return;
   // Grab the current DMP packet
   if (!mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) return;
   // Tick the BLE subsystem, processing any device connections/disconnections that need to happen.
-//  bleTick();
+  //bleTick();
 
   // Extract the pitch angle from the DMP packet
   Quaternion q;
@@ -366,10 +367,14 @@ void loop() {
   
   // Feed pitch angle to the PID controller
   float requested = controller.calcPid(ypr[1], (millis() - lastMillis) / 1000.0f);
-  delay(2);
-  Serial.printf("E: %f\n", requested);
+  delay(5);
 
   // Forward PID controller's request to the motors.
   left.write(requested);
   right.write(requested);
+  int t = micros() - tStart;
+  if (t > 10000) {
+    Serial.printf("E: %f, T: %d\n", requested, t);
+  }
+  }
 }
