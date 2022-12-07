@@ -93,9 +93,10 @@ int channelIdx = 0;
 class Stepper {
   private:
     const int step, dir, ledChannel, maxStepRate;
+    const bool reversed;
   public:
-    Stepper(int step, int dir, int maxStepRate) :
-      step(step), dir(dir), ledChannel(channelIdx++), maxStepRate(maxStepRate) {
+    Stepper(int step, int dir, int maxStepRate, bool reversed) :
+      step(step), dir(dir), ledChannel(channelIdx++), maxStepRate(maxStepRate), reversed(reversed) {
     }
 
     void init() {
@@ -111,7 +112,7 @@ class Stepper {
     }
 
     void write (int amount) {
-      digitalWrite(dir, amount < 0);
+      digitalWrite(dir, reversed ? amount < 0 : amount > 0);
       if (amount == 0) {
         ledcWrite(ledChannel, 0);
         return;
@@ -121,7 +122,7 @@ class Stepper {
       int requestedFreq = (int)(((float) amount / 255.0f) * maxStepRate);
       int ra = ledcChangeFrequency(ledChannel, requestedFreq, 10);
       ledcWrite(ledChannel, 2000);
-      Serial.printf("lc: %d, rf: %d, ret1: %d\n", ledChannel, requestedFreq, ra);
+      // Serial.printf("lc: %d, rf: %d, ret1: %d\n", ledChannel, requestedFreq, ra);
     }
 };
 
@@ -132,12 +133,12 @@ void dmpDataReady() {
 
 //TwoWayMotor left(PIN_IN1, PIN_IN2, PIN_ENA);
 //TwoWayMotor right(PIN_IN4, PIN_IN3, PIN_ENB);
-Stepper left(PIN_STEPA, PIN_DIRA, 200);
-Stepper right(PIN_STEPB, PIN_DIRB, 200);
+Stepper left(PIN_STEPA, PIN_DIRA, 200, false);
+Stepper right(PIN_STEPB, PIN_DIRB, 200, true);
 
 // Roughly 1/64 conversion factor
 //                       p,     i, d,  target
-PIDController controller(0.012, 0, 0, 0);
+PIDController controller(32000, 50, 0, 0);
 
 MPU6050 mpu;
 // MPU control/status vars
@@ -353,7 +354,14 @@ void loop() {
   // Requires DMP to be ready.
   if (!dmpReady) return;
   // Grab the current DMP packet
-  if (!mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) return;
+  if (!mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) {
+    // Serial.println("I am a terrible micronctroller and I can't find my packets");
+    return;
+  }
+  int t = micros() - tStart;
+  if (t > 30000) {
+    Serial.printf("T: %d\n", t);
+  }
   // Tick the BLE subsystem, processing any device connections/disconnections that need to happen.
   //bleTick();
 
@@ -365,16 +373,11 @@ void loop() {
   mpu.dmpGetGravity(&gravity, &q);
   mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
   
-  // Feed pitch angle to the PID controller
+  // Feed pitch angle to the PID controller000
   float requested = controller.calcPid(ypr[1], (millis() - lastMillis) / 1000.0f);
   delay(5);
 
   // Forward PID controller's request to the motors.
   left.write(requested);
   right.write(requested);
-  int t = micros() - tStart;
-  if (t > 10000) {
-    Serial.printf("E: %f, T: %d\n", requested, t);
-  }
-  }
 }
