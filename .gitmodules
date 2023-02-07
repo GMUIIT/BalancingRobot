@@ -1,0 +1,6 @@
+[submodule "Adafruit_AHRS"]
+	path = Adafruit_AHRS
+	url = git@github.com:adafruit/Adafruit_AHRS.git
+[submodule "raw_accel/Adafruit_AHRS"]
+	path = raw_accel/Adafruit_AHRS
+	url = git@github.com:adafruit/Adafruit_AHRS.git

@@ -35,8 +35,6 @@ MPU6050 mpu;
 bool dmpReady = false;  // set true if DMP init was successful
 uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
 volatile bool mpuInterrupt = false; // interrruuuuuuuupt
-uint8_t devStatus;      // return status after each device operation (0 = success, !0 = error)
-uint16_t packetSize;    // expected DMP packet size (default is 42 bytes)
 uint16_t fifoCount;     // count of all bytes currently in FIFO
 uint8_t fifoBuffer[64]; // FIFO storage buffer
 
@@ -63,37 +61,37 @@ void handleIncoming(std::string &command) {
       controller.d = atof(rest.c_str());
       break;
     case 'R':
-      ble.write("Resetting MPU...");
+      ble.println("Resetting MPU...");
       mpuInit();
       break;
     case 'M':
-      ble.write("Changing err_mul");
+      ble.println("Changing err_mul");
       controller.err_mul = atof(rest.c_str());
       break;
     case 'Y': // LEFT wheel
       leftOffset = atoi(rest.c_str());
-      ble.write("Left wheel offset...");
+      ble.println("Left wheel offset...");
       break;
     case 'A': // RIGHT wheel
       rightOffset = atoi(rest.c_str());
-      ble.write("Right wheel offset...");
+      ble.println("Right wheel offset...");
       break;
     case '?':
-      ble.write("----- COMMANDS ------");
-      ble.write("'P<float>' - set PID's P value");
-      ble.write("'I<float>' - set PID's I value");
-      ble.write("'D<float>' - set PID's D value");
-      ble.write("'R' - reset MPU (broken)");
-      ble.write("'M' - set err_mul (???) (might be how fast the integral decays)");
-      ble.write("'Y<int>' - set left wheel offset (causing rotation)");
-      ble.write("'M<int>' - set right wheel offset (causing rotation)");
-      ble.write("\n");
+      ble.println("----- COMMANDS ------");
+      ble.println("'P<float>' - set PID's P value");
+      ble.println("'I<float>' - set PID's I value");
+      ble.println("'D<float>' - set PID's D value");
+      ble.println("'R' - reset MPU (broken)");
+      ble.println("'M' - set err_mul (???) (might be how fast the integral decays)");
+      ble.println("'Y<int>' - set left wheel offset (causing rotation)");
+      ble.println("'M<int>' - set right wheel offset (causing rotation)");
+      ble.println("\n");
       break;
     default:
-      ble.write("Unknown command " + command);
+      ble.println("Unknown command " + command);
       break;
   }
-  ble.write("P: " + std::to_string(controller.p) + ", I: " + std::to_string(controller.i) + ", D: " + std::to_string(controller.d));
+  ble.println("P: " + std::to_string(controller.p) + ", I: " + std::to_string(controller.i) + ", D: " + std::to_string(controller.d));
   
 }
 
@@ -109,15 +107,15 @@ void mpuInit() {
 
   // load and configure the DMP
   Serial.println(F("Initializing DMP..."));
-  devStatus = mpu.dmpInitialize();
+  int devStatus = mpu.dmpInitialize();
 
   // supply your own gyro offsets here, scaled for min sensitivity
-  mpu.setXGyroOffset(51);
-  mpu.setYGyroOffset(8);
-  mpu.setZGyroOffset(21);
-  mpu.setXAccelOffset(1150);
-  mpu.setYAccelOffset(-50);
-  mpu.setZAccelOffset(1060);
+//  mpu.setXGyroOffset(51);
+//  mpu.setYGyroOffset(8);
+//  mpu.setZGyroOffset(21);
+//  mpu.setXAccelOffset(1150);
+//  mpu.setYAccelOffset(-50);
+//  mpu.setZAccelOffset(1060);
   // make sure it worked (returns 0 if so)
   if (devStatus == 0) {
     // Calibration Time: generate offsets and calibrate our MPU6050
@@ -139,9 +137,6 @@ void mpuInit() {
     // set our DMP Ready flag so the main loop() function knows it's okay to use it
     Serial.println(F("DMP ready! Waiting for first interrupt..."));
     dmpReady = true;
-
-    // get expected DMP packet size for later comparison
-    packetSize = mpu.dmpGetFIFOPacketSize();
   } else {
     // ERROR!
     // 1 = initial memory load failed
@@ -159,10 +154,11 @@ void setup() {
   Serial.begin(115200);
   
   // initialize devices
-  Serial.println("Initializing I2C devices...");
+  Serial.println("MPU Init...");
   mpuInit();
   Serial.println("Initializing BLE...");
   ble.init();
+  Serial.println("Stepper init...");
   left.init();
   right.init();
   Serial.println("Setup done!");
@@ -192,7 +188,7 @@ void loop() {
   mpu.dmpGetGravity(&gravity, &q);
   mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
   
-  // Feed pitch angle to the PID controller000
+  // Feed pitch angle to the PID controller
   float requested = controller.calcPid(ypr[1], (millis() - lastMillis) / 1000.0f);
   delay(5);
 
