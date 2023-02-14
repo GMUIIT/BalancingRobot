@@ -1,7 +1,3 @@
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
 #include "I2Cdev.h"
 #include "MPU6050_6Axis_MotionApps_V6_12.h"
 
@@ -40,6 +36,30 @@ uint8_t fifoBuffer[64]; // FIFO storage buffer
 
 void dmpDataReady() {
   mpuInterrupt = true;
+}
+
+// Fun: play a tone like the ESC startup noise
+void playBootTone() {
+  left.playNote(NOTE_G, 6);
+  right.playNote(NOTE_G, 6);
+  delay(250);
+  left.playNote(NOTE_B, 6);
+  right.playNote(NOTE_B, 6);
+  delay(250);
+  left.playNote(NOTE_D, 7);
+  right.playNote(NOTE_D, 7);
+  delay(250);
+  left.stopNote();
+  right.stopNote();
+  delay(250);
+  left.playNote(NOTE_G, 6);
+  right.playNote(NOTE_G, 6);
+  delay(500);
+  left.playNote(NOTE_D, 7);
+  right.playNote(NOTE_D, 7);
+  delay(500);
+  left.stopNote();
+  right.stopNote();
 }
 
 void handleIncoming(std::string &command) {
@@ -92,7 +112,6 @@ void handleIncoming(std::string &command) {
       break;
   }
   ble.println("P: " + std::to_string(controller.p) + ", I: " + std::to_string(controller.i) + ", D: " + std::to_string(controller.d));
-  
 }
 
 void mpuInit() {
@@ -151,6 +170,7 @@ void mpuInit() {
 void setup() {
   Wire.begin();
   Wire.setClock(400000);
+  Wire.setTimeout(1000);
   Serial.begin(115200);
   
   // initialize devices
@@ -161,6 +181,7 @@ void setup() {
   Serial.println("Stepper init...");
   left.init();
   right.init();
+  playBootTone();
   Serial.println("Setup done!");
 }
 
