@@ -5,9 +5,9 @@
 #include "Stepper.h"
 #include "PIDController.h"
 
-#define PIN_DIRA  32
+#define PIN_DIRA   32
 #define PIN_STEPA  33
-#define PIN_DIRB  26
+#define PIN_DIRB   26
 #define PIN_STEPB  27
 #define PIN_MPUINT 18
 
@@ -40,26 +40,28 @@ void dmpDataReady() {
 
 // Fun: play a tone like the ESC startup noise
 void playBootTone() {
-  left.playNote(NOTE_G, 6);
-  right.playNote(NOTE_G, 6);
-  delay(250);
-  left.playNote(NOTE_B, 6);
-  right.playNote(NOTE_B, 6);
-  delay(250);
-  left.playNote(NOTE_D, 7);
-  right.playNote(NOTE_D, 7);
-  delay(250);
+  int baseOctave = 9;
+  left.playNote(NOTE_G, baseOctave);
+  right.playNote(NOTE_G, baseOctave);
+  delay(200);
+  left.playNote(NOTE_B, baseOctave);
+  right.playNote(NOTE_B, baseOctave);
+  delay(200);
+  left.playNote(NOTE_D, baseOctave + 1);
+  right.playNote(NOTE_D, baseOctave + 1);
+  delay(200);
   left.stopNote();
   right.stopNote();
-  delay(250);
-  left.playNote(NOTE_G, 6);
-  right.playNote(NOTE_G, 6);
-  delay(500);
-  left.playNote(NOTE_D, 7);
-  right.playNote(NOTE_D, 7);
-  delay(500);
+  delay(750);
+  left.playNote(NOTE_G, baseOctave);
+  right.playNote(NOTE_G, baseOctave);
+  delay(750);
+  left.playNote(NOTE_D, baseOctave + 1);
+  right.playNote(NOTE_D, baseOctave + 1);
+  delay(750);
   left.stopNote();
   right.stopNote();
+  delay(500);
 }
 
 void handleIncoming(std::string &command) {
@@ -182,6 +184,15 @@ void setup() {
   left.init();
   right.init();
   playBootTone();
+//  left.write(255);
+//  right.write(255);
+//  for (;;) {
+//    int r = Serial.parseInt();
+//    if (r != 0) {
+//      left.write(r);
+//      right.write(r);
+//    }
+//  }
   Serial.println("Setup done!");
 }
 

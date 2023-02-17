@@ -11,7 +11,7 @@ void Stepper::init() {
   digitalWrite(dir, LOW);
   // Setup ledc channels - step is attached immediately, but
   // we leave dir unattached since it's only for music
-  ledcSetup(dirChannel, 0, LEDC_RESOLUTION_BITS);
+  ledcSetup(dirChannel, 1000, LEDC_RESOLUTION_BITS);
   ledcSetup(stepChannel, 500, LEDC_RESOLUTION_BITS);
   ledcAttachPin(step, stepChannel);
   // Write 0 to stop any output
@@ -28,7 +28,7 @@ void Stepper::write (int amount) {
   // Change freq and set duty cycle to 1.
   int requestedFreq = (int)(((float) amount / 255.0f) * maxStepRate);
   int ra = ledcChangeFrequency(stepChannel, requestedFreq, 10);
-  ledcWrite(stepChannel, 2000);
+  ledcWrite(stepChannel, 200);
   // Serial.printf("lc: %d, rf: %d, ret1: %d\n", stepChannel, requestedFreq, ra);
 }
 
