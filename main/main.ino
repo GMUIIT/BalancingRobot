@@ -22,10 +22,11 @@ void handleIncoming(std::string &command);
 //                       p,     i, d,  target
 int lastMillis = 0;
 BLEUart ble("C4 Cat", handleIncoming);
-PIDController controller(32000, 50, 0, 0);
+PIDController controller(40000, 1, 120000000, 0);
 Stepper left(PIN_STEPA, PIN_DIRA, 200, false);
 Stepper right(PIN_STEPB, PIN_DIRB, 200, true);
 int leftOffset = 0, rightOffset = 0;
+float setpoint = -0.04; // Setpoint in radians - TODO make this part of PID controller TODO use the already existing target in PID controller
 // MPU control/status vars
 MPU6050 mpu;
 bool dmpReady = false;  // set true if DMP init was successful
@@ -98,6 +99,9 @@ void handleIncoming(std::string &command) {
       rightOffset = atoi(rest.c_str());
       ble.println("Right wheel offset...");
       break;
+    case 'S': // Setpoint
+      setpoint = atof(rest.c_str());
+      ble.println("New setpoint: " + std::to_string(setpoint));
     case '?':
       ble.println("----- COMMANDS ------");
       ble.println("'P<float>' - set PID's P value");
@@ -107,6 +111,7 @@ void handleIncoming(std::string &command) {
       ble.println("'M' - set err_mul (???) (might be how fast the integral decays)");
       ble.println("'Y<int>' - set left wheel offset (causing rotation)");
       ble.println("'M<int>' - set right wheel offset (causing rotation)");
+      ble.println("'S<float>' - change PID setpoint");
       ble.println("\n");
       break;
     default:
@@ -140,8 +145,8 @@ void mpuInit() {
   // make sure it worked (returns 0 if so)
   if (devStatus == 0) {
     // Calibration Time: generate offsets and calibrate our MPU6050
-    mpu.CalibrateAccel(6);
-    mpu.CalibrateGyro(6);
+    // mpu.CalibrateAccel(6);
+    // mpu.CalibrateGyro(6);
     Serial.println();
     mpu.PrintActiveOffsets();
     // turn on the DMP, now that it's ready
@@ -196,6 +201,17 @@ void setup() {
   Serial.println("Setup done!");
 }
 
+Quaternion getInverse(Quaternion q) {
+  float norm = q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z;
+  if (norm > 0.0f) {
+    float invNorm = 1.0f / norm;
+    return Quaternion(q.w * invNorm, -q.x * invNorm, -q.y * invNorm, -q.z * invNorm);
+  } else {
+    // If the quaternion is zero, return an identity quaternion
+    return Quaternion(1.0f, 0.0f, 0.0f, 0.0f);
+  }
+}
+
 void loop() {
   int tStart = micros();
   // Requires DMP to be ready.
@@ -219,9 +235,12 @@ void loop() {
   mpu.dmpGetQuaternion(&q, fifoBuffer);
   mpu.dmpGetGravity(&gravity, &q);
   mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-  
+  // Serial.printf("g: <%f, %f, %f>, ", gravity.x, gravity.y, gravity.z);
+  // Serial.printf("angle: %f, %f, %f", ypr[0], ypr[1], ypr[2]);
+  // Serial.printf("\n\n");
+
   // Feed pitch angle to the PID controller
-  float requested = controller.calcPid(ypr[1], (millis() - lastMillis) / 1000.0f);
+  float requested = controller.calcPid(ypr[1] - setpoint, (millis() - lastMillis) / 1000.0f);
   delay(5);
 
   // Forward PID controller's request to the motors.
