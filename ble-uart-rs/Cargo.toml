@@ -10,4 +10,4 @@ btleplug = { version = "0.10", features = ["serde"] }
 futures = "0.3"
 tokio = { version = "1", features = ["full"] }
 uuid = "1"
-stick = "0.13.0"
+gilrs = { version = "0.10.2", default-features=false, features=["xinput"] }

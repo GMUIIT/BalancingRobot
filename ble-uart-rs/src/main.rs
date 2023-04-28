@@ -1,15 +1,18 @@
+#![feature(let_chains)]
+
 use btleplug::api::{BDAddr, Central, Manager as _, Peripheral, ScanFilter, WriteType};
 use btleplug::platform::Manager;
 use std::error::Error;
-use std::future::Future;
+
 use std::io::{self, stdout, Write};
-use std::net::TcpListener;
+use std::{process, thread};
 use std::sync::Arc;
 use std::time::Duration;
-use futures::StreamExt;
+use futures::{StreamExt};
 use uuid::Uuid;
 use tokio::{task};
-use stick::{Listener, Controller, Event, Remap};
+use gilrs::{Gilrs, Button, Event, GilrsBuilder, Filter, Axis};
+use gilrs::ev::filter::Repeat;
 
 const UART_SERVICE_UUID: Uuid = Uuid::from_u128(0x6E400001_B5A3_F393_E0A9_E50E24DCCA9E);
 const RX_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0x6E400003_B5A3_F393_E0A9_E50E24DCCA9E);
@@ -17,12 +20,6 @@ const TX_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0x6E400002_B5A3_F393_E0A9_E
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    // Part 1: connect to gamepad
-    println!("Waiting for controller...");
-    let listener = Listener::new(Remap::new());
-    let controller = listener.await;
-    println!("Controller connected");
-
     // Part 2: connect to UART
     // Hardcoded C4 cat address
     let peripheral_address: BDAddr = BDAddr::from([0xB8, 0xD6, 0x1A, 0x6A, 0x37, 0xDA]);
@@ -57,10 +54,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .position(|x| x.address() == peripheral_address);
 
         match pos {
-            None => { continue }
+            None => { continue; }
             Some(pos) => {
                 peripheral = Some(peripherals.remove(pos));
-                break
+                break;
             }
         }
     }
@@ -95,6 +92,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .find(|x| x.service_uuid == UART_SERVICE_UUID && x.uuid == RX_CHARACTERISTIC_UUID)
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "RX characteristic not found"))?;
 
+    let tx2 = tx_characteristic.clone();
+
     // Setup RX event listener
     peripheral.subscribe(rx_characteristic).await?;
 
@@ -116,11 +115,39 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Task to handle incoming gamepad events
     let p3 = peripheral.clone();
-    // task::spawn(async move {
-    //     loop {
-    //         let evt = controller.
-    //     }
-    // });
+    // Gamepad checking function
+    task::spawn(async move {
+        let mut gilrs = Gilrs::new().unwrap();
+        let mut old_setpoint = 0f32;
+        let mut active_gamepad= None;
+        loop {
+            // Examine new events
+            while let Some(Event { id, event, time }) = gilrs.next_event() {
+                // println!("{:?} New event from {}: {:?}", time, id, event);
+                active_gamepad = Some(id);
+            }
+            let mut cmd = None;
+            if let Some(gamepad) = active_gamepad {
+                let gp = gilrs.gamepad(gamepad);
+                if let Some(lcode) = gp.button_data(Button::LeftTrigger2) &&
+                    let Some(rcode) = gp.button_data(Button::RightTrigger2){
+                    const center: f32 = 0.28;
+                    const range: f32 = 0.2;
+                    let setpoint = center - lcode.value() * range + rcode.value() * range;
+                    if setpoint != old_setpoint {
+                        old_setpoint = setpoint;
+                        cmd = Some("AS".to_owned() + &setpoint.to_string());
+                    }
+                }
+            }
+            if let Some(cmd) = cmd {
+                println!("Submitting command {}", cmd);
+                p3.write(&tx2, cmd.as_bytes(), WriteType::WithoutResponse).await.unwrap();
+            }
+
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    });
 
     println!("Connected to emulated UART on peripheral: {:?}", local_name);
     println!("Enter commands (Ctrl+C to exit):");

@@ -22,7 +22,7 @@ void handleIncoming(std::string &command);
 //                       p,     i, d,  target
 int lastMillis = 0;
 BLEUart ble("C4 Cat", handleIncoming);
-PIDController anglePid(50000, 1000000, 0, 0.27);
+PIDController anglePid(30000, 1000000, 0, 0.28);
 PIDController velocityPid(1, 0, 0, 0);
 Stepper left(PIN_STEPA, PIN_DIRA, 200, false);
 Stepper right(PIN_STEPB, PIN_DIRB, 200, true);
@@ -235,7 +235,7 @@ void loop() {
   // Feed X velocity to PID controller to get requested acceleration
   float angleSetpoint = velocityPid.calcPid(worldAccel.x / 4096.0f, dt);
   // Feed pitch angle to the PID controller to get motor speed
-  float motorSpeed = anglePid.calcPid(angleSetpoint, dt);
+  float motorSpeed = anglePid.calcPid(ypr[1], dt);
   delay(5);
 
   // Forward PID controller's request to the motors.
